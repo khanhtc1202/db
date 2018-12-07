@@ -347,7 +347,7 @@ void print_leaf_node(void* node) {
     printf("leaf (size %d)\n", num_cells);
     for (uint32_t i = 0; i < num_cells; i++) {
         uint32_t key = *leaf_node_key(node, i);
-        printf("  - %d : %d", i, key);
+        printf("  - %d : %d\n", i, key);
     }
 }
 

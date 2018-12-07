@@ -46,6 +46,12 @@ struct Row_t {
 };
 typedef struct Row_t Row;
 
+struct Statement_t {
+    StatementType type;
+    Row row_to_insert;  // only used by insert statement
+};
+typedef struct Statement_t Statement;
+
 #define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
 
 const uint32_t ID_SIZE = size_of_attribute(Row, id);
@@ -114,6 +120,18 @@ const uint32_t LEAF_NODE_SPACE_FOR_CELLS = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS =
         LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 
+void serialize_row(Row* source, void* destination) {
+    memcpy(destination + ID_OFFSET, &(source->id), ID_SIZE);
+    memcpy(destination + USERNAME_OFFSET, &(source->username), USERNAME_SIZE);
+    memcpy(destination + EMAIL_OFFSET, &(source->email), EMAIL_SIZE);
+}
+
+void deserialize_row(void* source, Row* destination) {
+    memcpy(&(destination->id), source + ID_OFFSET, ID_SIZE);
+    memcpy(&(destination->username), source + USERNAME_OFFSET, USERNAME_SIZE);
+    memcpy(&(destination->email), source + EMAIL_OFFSET, EMAIL_SIZE);
+}
+
 uint32_t* leaf_node_num_cells(void* node) {
     return node + LEAF_NODE_NUM_CELLS_OFFSET;
 }
@@ -129,9 +147,6 @@ uint32_t* leaf_node_key(void* node, uint32_t cell_num) {
 void* leaf_node_value(void* node, uint32_t cell_num) {
     return leaf_node_cell(node, cell_num) + LEAF_NODE_KEY_SIZE;
 }
-
-// one leaf node as one page
-void initialize_leaf_node(void* node) { *leaf_node_num_cells(node) = 0; }
 
 // the logic for handling a cache miss
 void* get_page(Pager* pager, uint32_t page_num) {
@@ -204,6 +219,38 @@ void cursor_advance(Cursor* cursor) {
     if (cursor->cell_num >= (*leaf_node_num_cells(node))) {
         cursor->end_of_table = true;
     }
+}
+
+void* cursor_value(Cursor* cursor) {
+    uint32_t page_num = cursor->page_num;
+    void* page = get_page(cursor->table->pager, page_num);
+    return leaf_node_value(page, cursor->cell_num);
+}
+
+// one leaf node as one page
+void initialize_leaf_node(void* node) { *leaf_node_num_cells(node) = 0; }
+
+void leaf_node_insert(Cursor* cursor, uint32_t key, Row* value) {
+    void* node = get_page(cursor->table->pager, cursor->page_num);
+
+    uint32_t num_cells = *leaf_node_num_cells(node);
+    if (num_cells >= LEAF_NODE_MAX_CELLS) {
+        // Node full
+        printf("Need to implement splitting a leaf node.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (cursor->cell_num < num_cells) {
+        // Make room for new cell
+        for (uint32_t i = num_cells; i > cursor->cell_num; i--) {
+            memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i - 1),
+                   LEAF_NODE_CELL_SIZE);
+        }
+    }
+
+    *(leaf_node_num_cells(node)) += 1;
+    *(leaf_node_key(node, cursor->cell_num)) = key;
+    serialize_row(value, leaf_node_value(node, cursor->cell_num));
 }
 
 Pager* pager_open(const char* filename) {
@@ -295,13 +342,6 @@ void db_close(Table* table) {
     free(pager);
 }
 
-struct Statement_t {
-    StatementType type;
-    Row row_to_insert;  // only used by insert statement
-};
-typedef struct Statement_t Statement;
-
-
 InputBuffer* new_input_buffer() {
     InputBuffer* input_buffer = malloc(sizeof(InputBuffer));
     input_buffer->buffer = NULL;
@@ -368,24 +408,6 @@ MetaCommandResult do_meta_command(InputBuffer* input_buffer, Table* table) {
     }
 }
 
-void serialize_row(Row* source, void* destination) {
-    memcpy(destination + ID_OFFSET, &(source->id), ID_SIZE);
-    memcpy(destination + USERNAME_OFFSET, &(source->username), USERNAME_SIZE);
-    memcpy(destination + EMAIL_OFFSET, &(source->email), EMAIL_SIZE);
-}
-
-void deserialize_row(void* source, Row* destination) {
-    memcpy(&(destination->id), source + ID_OFFSET, ID_SIZE);
-    memcpy(&(destination->username), source + USERNAME_OFFSET, USERNAME_SIZE);
-    memcpy(&(destination->email), source + EMAIL_OFFSET, EMAIL_SIZE);
-}
-
-void* cursor_value(Cursor* cursor) {
-    uint32_t page_num = cursor->page_num;
-    void* page = get_page(cursor->table->pager, page_num);
-    return leaf_node_value(page, cursor->cell_num);
-}
-
 PrepareResult prepare_insert(InputBuffer* input_buffer, Statement* statement) {
     statement->type = STATEMENT_INSERT;
 
@@ -429,29 +451,6 @@ PrepareResult prepare_statement(InputBuffer* input_buffer,
     }
 
     return PREPARE_UNRECOGNIZED_STATEMENT;
-}
-
-void leaf_node_insert(Cursor* cursor, uint32_t key, Row* value) {
-    void* node = get_page(cursor->table->pager, cursor->page_num);
-
-    uint32_t num_cells = *leaf_node_num_cells(node);
-    if (num_cells >= LEAF_NODE_MAX_CELLS) {
-        // Node full
-        printf("Need to implement splitting a leaf node.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (cursor->cell_num < num_cells) {
-        // Make room for new cell
-        for (uint32_t i = num_cells; i > cursor->cell_num; i--) {
-            memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i - 1),
-                 LEAF_NODE_CELL_SIZE);
-        }
-    }
-
-    *(leaf_node_num_cells(node)) += 1;
-    *(leaf_node_key(node, cursor->cell_num)) = key;
-    serialize_row(value, leaf_node_value(node, cursor->cell_num));
 }
 
 ExecuteResult execute_insert(Statement* statement, Table* table) {

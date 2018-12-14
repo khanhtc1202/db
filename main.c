@@ -136,6 +136,16 @@ void deserialize_row(void* source, Row* destination) {
     memcpy(&(destination->email), source + EMAIL_OFFSET, EMAIL_SIZE);
 }
 
+NodeType get_node_type(void* node) {
+    uint8_t value = *((uint8_t*)(node + NODE_TYPE_OFFSET));
+    return (NodeType)value;
+}
+
+void set_node_type(void* node, NodeType type) {
+    uint8_t value = type;
+    *((uint8_t*)(node + NODE_TYPE_OFFSET)) = value;
+}
+
 uint32_t* leaf_node_num_cells(void* node) {
     return node + LEAF_NODE_NUM_CELLS_OFFSET;
 }
@@ -150,6 +160,10 @@ uint32_t* leaf_node_key(void* node, uint32_t cell_num) {
 
 void* leaf_node_value(void* node, uint32_t cell_num) {
     return leaf_node_cell(node, cell_num) + LEAF_NODE_KEY_SIZE;
+}
+
+Cursor* leaf_node_find(Table* table, uint32_t page_num, uint32_t key) {
+    // TODO
 }
 
 // the logic for handling a cache miss
@@ -202,19 +216,8 @@ Cursor* table_start(Table* table) {
     return cursor;
 }
 
-Cursor* table_end(Table* table) {
-    Cursor* cursor = malloc(sizeof(Cursor));
-    cursor->table = table;
-    cursor->page_num = table->root_page_num;
-
-    void* root_node = get_page(table->pager, table->root_page_num);
-    uint32_t num_cells = *leaf_node_num_cells(root_node);
-    cursor->cell_num = num_cells;
-    cursor->end_of_table = true;
-
-    return cursor;
-}
-
+// return the position of given key, if not existed key
+// return the position where it should be inserted
 Cursor* table_find(Table* table, uint32_t key) {
     // TODO
 }
@@ -236,7 +239,10 @@ void* cursor_value(Cursor* cursor) {
 }
 
 // one leaf node as one page
-void initialize_leaf_node(void* node) { *leaf_node_num_cells(node) = 0; }
+void initialize_leaf_node(void* node) {
+    set_node_type(node, NODE_LEAF);
+    *leaf_node_num_cells(node) = 0;
+}
 
 void leaf_node_insert(Cursor* cursor, uint32_t key, Row* value) {
     void* node = get_page(cursor->table->pager, cursor->page_num);

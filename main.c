@@ -2,9 +2,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
 #include <zconf.h>
 #include <errno.h>
+#include <fcntl.h>
 
 struct InputBuffer_t {
     char* buffer;
@@ -162,10 +162,6 @@ void* leaf_node_value(void* node, uint32_t cell_num) {
     return leaf_node_cell(node, cell_num) + LEAF_NODE_KEY_SIZE;
 }
 
-Cursor* leaf_node_find(Table* table, uint32_t page_num, uint32_t key) {
-    // TODO
-}
-
 // the logic for handling a cache miss
 void* get_page(Pager* pager, uint32_t page_num) {
     if (page_num > TABLE_MAX_PAGES) {
@@ -203,6 +199,35 @@ void* get_page(Pager* pager, uint32_t page_num) {
     return pager->pages[page_num];
 }
 
+Cursor* leaf_node_find(Table* table, uint32_t page_num, uint32_t key) {
+    void* node = get_page(table->pager, page_num);
+    uint32_t num_cells = *leaf_node_num_cells(node);
+
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->page_num = page_num;
+
+    // search
+    uint32_t min_index = 0;
+    uint32_t one_past_max_index = num_cells;
+    while (one_past_max_index != min_index) {
+        uint32_t index = (min_index + one_past_max_index) / 2;
+        uint32_t key_at_index = *leaf_node_key(node, index);
+        if (key == key_at_index) {
+            cursor->cell_num = index;
+            return cursor;
+        }
+        if (key < key_at_index) {
+            one_past_max_index = index;
+        } else {
+            min_index = index + 1;
+        }
+    }
+
+    cursor->cell_num = min_index;
+    return cursor;
+}
+
 Cursor* table_start(Table* table) {
     Cursor* cursor = malloc(sizeof(Cursor));
     cursor->table = table;
@@ -219,7 +244,15 @@ Cursor* table_start(Table* table) {
 // return the position of given key, if not existed key
 // return the position where it should be inserted
 Cursor* table_find(Table* table, uint32_t key) {
-    // TODO
+    uint32_t root_page_num = table->root_page_num;
+    void* root_node = get_page(table->pager, root_page_num);
+
+    if (get_node_type(root_node) == NODE_LEAF) {
+        return leaf_node_find(table, root_page_num, key);
+    } else {
+        printf("Need to implement searching an internal node\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void cursor_advance(Cursor* cursor) {
@@ -559,6 +592,9 @@ int main(int argc, char* argv[]) {
         switch (execute_statement(&statement, table)) {
             case EXECUTE_SUCCESS:
                 printf("Executed.\n");
+                break;
+            case EXECUTE_DUPLICATE_KEY:
+                printf("Error: Duplicate key.\n");
                 break;
             case EXECUTE_TABLE_FULL:
                 printf("Error: Table full.\n");

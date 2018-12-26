@@ -351,6 +351,7 @@ Table* db_open(const char* filename) {
 
     Table* table = malloc(sizeof(Table));
     table->pager = pager;
+    table->root_page_num = 0;
 
     if (pager->num_pages == 0) {
         // new db file, init empty leaf node as root
